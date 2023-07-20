@@ -46,10 +46,6 @@ def upload_csv(file: UploadFile):
 
         return {'result': 'success', 'detail': f'Processed {file.filename} successfully'}
 
-        # Convert the DataFrame to a list of dictionaries (JSON-compatible format)
-        data = df.toJSON().collect()
-        return data
-
     except Exception as e:
         print(e)
         if isinstance(e, HTTPException):
