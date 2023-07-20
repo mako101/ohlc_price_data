@@ -5,6 +5,9 @@ from csv_processor.schema import expected_schema
 
 app = FastAPI()
 
+
+# As we have a requirement to process gigabytes or terabytes of data fast
+# I believe PySpark is the best tool to handle large datasets quickly and efficiently
 # Initialize the Spark session
 spark = SparkSession.builder.master('local[1]').appName("CSVProcessor").getOrCreate()
 
