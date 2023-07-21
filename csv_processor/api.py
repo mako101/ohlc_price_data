@@ -1,7 +1,20 @@
+import sys
+import logging
 from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 from tempfile import NamedTemporaryFile
 from csv_processor.schema import expected_schema
+from csv_processor.utils import convert_timestamp_udf
+from csv_processor.models import Position
+# from csv_processor.db import session
+
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s - %(name)s: %(message)s",
+                    stream=sys.stdout
+                    )
 
 app = FastAPI()
 
@@ -36,7 +49,7 @@ def upload_csv(file: UploadFile):
         )
 
         df.printSchema()
-        df.show()
+        df.show(truncate=False)
 
         # As we have strict validation requirements for the uploaded CSV data,
         # we will check whether the schema inferred from the CSV matches exactly what we expect
@@ -47,7 +60,17 @@ def upload_csv(file: UploadFile):
                                        f"expected: {expected_schema}, got: {df.schema}"
                                 )
 
-        return {'result': 'success', 'detail': f'Processed {file.filename} successfully'}
+        timestamp_format = "%Y-%m-%d %H:%M:%S"
+        df = df.withColumn('UNIX', convert_timestamp_udf(col('UNIX')))
+        df.show(truncate=False)
+
+        df_dict = [row.asDict() for row in df.collect()]
+        print(df_dict)
+
+        return JSONResponse(content={
+            'result': 'success',
+            'detail': f'Processed {file.filename} successfully'},
+            status_code=200)
 
     except Exception as e:
         print(e)
