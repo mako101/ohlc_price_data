@@ -1,27 +1,31 @@
+import os
 import sys
 import logging
 from datetime import datetime
+from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
-from tempfile import NamedTemporaryFile
 from sqlalchemy import insert
-from csv_processor.schema import expected_schema
 import csv_processor.utils as u
 from csv_processor.models import Position
+from csv_processor.schema import expected_schema
 
-# from csv_processor.db import Session
-from csv_processor.db_sqlite import Session
+if os.environ.get('ENV') == 'DEV':
+    from csv_processor.db_sqlite import get_db_session
+else:
+    from csv_processor.db_mysql import get_db_session
 
 
+# Set up basic logging
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s - %(name)s: %(message)s",
                     stream=sys.stdout
                     )
 
+# Initialise the application
 app = FastAPI()
-
 
 # As we have a requirement to process gigabytes or terabytes of data fast
 # I believe PySpark is the best tool to handle large datasets quickly and efficiently
@@ -48,9 +52,9 @@ def upload_csv(file: UploadFile):
 
         # Load the CSV data into a PySpark DataFrame
         df = spark.read.csv(tmp_file.name,
-            header=True,
-            inferSchema=True,
-        )
+                            header=True,
+                            inferSchema=True,
+                            )
 
         # As we have strict validation requirements for the uploaded CSV data,
         # we will check whether the schema inferred from the CSV matches exactly what we expect
@@ -78,7 +82,7 @@ def upload_csv(file: UploadFile):
         logging.debug(df_rows)
 
         # perform bulk insert into DB
-        with Session() as session:
+        with get_db_session() as session:
             session.execute(
                 insert(Position),
                 df_rows
@@ -99,16 +103,18 @@ def upload_csv(file: UploadFile):
 
 
 @app.get("/data")
-def get_stock_records(
+def get_records(
         symbol: str = Query(default='BTCUSDT', description="Crypto pair symbol, eg `BTCUSDT`"),
-        start_date: str = Query(default='2022-02-13 02:31:00', description="Start date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
-        end_date: str = Query(default='2022-02-13 02:35:00', description="End date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
+        start_date: str = Query(default='2022-02-13 02:30:00',
+                                description="Start date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
+        end_date: str = Query(default='2022-02-13 02:36:00',
+                              description="End date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
         limit: int = Query(default=5, description="Amount of results per page to return"),
         page: int = Query(default=1, description="Page to read the data from")
 ):
     try:
 
-        with Session() as session:
+        with get_db_session() as session:
             query = session.query(Position).filter(
                 Position.symbol == u.validate_symbol(symbol),
                 Position.timestamp >= u.validate_date(start_date),
@@ -124,9 +130,7 @@ def get_stock_records(
 
         if not records:
             return {
-                "data": [],
-                "pagination": {},
-                "info": {'error': f'No records found for symbol {symbol}'}
+                "data": {'result': f'No records found for symbol {symbol} from {start_date} to {end_date}'}
             }
 
         return {
@@ -137,7 +141,6 @@ def get_stock_records(
                 "limit": limit,
                 "pages": total_pages
             },
-            "info": {'error': ''}
         }
     except Exception as e:
         logging.exception('Unhandled Error')

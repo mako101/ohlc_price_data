@@ -1,4 +1,4 @@
-from pyspark.sql.types import StructType, StructField, StringType,  LongType, DoubleType
+from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType
 
 expected_schema = StructType([
     StructField("UNIX", LongType(), True),

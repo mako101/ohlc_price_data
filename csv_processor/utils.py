@@ -1,7 +1,7 @@
 from datetime import datetime
+
 from pyspark.sql.functions import udf
 from pyspark.sql.types import StringType
-
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -29,7 +29,7 @@ def convert_timestamp(timestamp: int) -> str:
     from the CSV timestamp before converting
     """
     timestamp_obj = datetime.utcfromtimestamp(
-        int(timestamp)/1000)
+        int(timestamp) / 1000)
 
     timestamp_string = timestamp_obj.strftime(TIMESTAMP_FORMAT)
     return timestamp_string

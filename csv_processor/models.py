@@ -1,6 +1,5 @@
-from sqlalchemy.orm import declarative_base
 from sqlalchemy import Integer, Column, Float, String, DateTime
-
+from sqlalchemy.orm import declarative_base
 
 # Define the ORM base
 Base = declarative_base()
