@@ -19,5 +19,11 @@ pymysql.install_as_MySQLdb()
 
 # Define the SQLAlchemy engine and session
 engine = create_engine(mysql_db, pool_size=5, pool_recycle=3600)
+
+# Create the 'positions' table if it doesn't exist
+Base.metadata.create_all(engine)
+
 Session = sessionmaker(bind=engine)
 # session = Session()
+
+

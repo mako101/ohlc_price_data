@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Integer, Column, Date, Float, String
+from sqlalchemy import Integer, Column, Float, String, DateTime
 
 
 # Define the ORM base
@@ -9,7 +9,7 @@ Base = declarative_base()
 class Position(Base):
     __tablename__ = 'positions'
     id = Column(Integer, primary_key=True)
-    timestamp = Column(Date())
+    timestamp = Column(DateTime())
     symbol = Column(String(10))
     open_price = Column(Float)
     highest = Column(Float)

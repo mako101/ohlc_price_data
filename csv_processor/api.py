@@ -1,16 +1,18 @@
 import sys
 import logging
 from datetime import datetime
-from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi import FastAPI, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from tempfile import NamedTemporaryFile
 from sqlalchemy import insert
 from csv_processor.schema import expected_schema
-from csv_processor.utils import convert_timestamp_udf, TIMESTAMP_FORMAT
+import csv_processor.utils as u
 from csv_processor.models import Position
-from csv_processor.db import Session
+
+# from csv_processor.db import Session
+from csv_processor.db_sqlite import Session
 
 
 logging.basicConfig(level=logging.INFO,
@@ -27,7 +29,7 @@ app = FastAPI()
 spark = SparkSession.builder.master('local[1]').appName("CSVProcessor").getOrCreate()
 
 
-@app.post("/upload/")
+@app.post("/data/")
 def upload_csv(file: UploadFile):
     # Check if the uploaded file is a CSV file
     if file.content_type != "text/csv":
@@ -60,7 +62,7 @@ def upload_csv(file: UploadFile):
                                 )
 
         # convert epoch time stamp to datetime string
-        df = df.withColumn('UNIX', convert_timestamp_udf(col('UNIX')))
+        df = df.withColumn('UNIX', u.convert_timestamp_udf(col('UNIX')))
 
         # rename Dataframe columns to match the Position model object attributes
         new_column_names = ['timestamp', 'symbol', 'open_price', 'highest', 'lowest', 'close_price']
@@ -70,26 +72,75 @@ def upload_csv(file: UploadFile):
         # prepare the data for bulk insertion with SQLAlchemy
         # convert Dataframe into a list of dictionaries
         # convert timestamp string into a datetime object
-        df_as_dicts = [row.asDict() for row in df.collect()]
-        for row_dict in df_as_dicts:
-            row_dict['timestamp'] = datetime.strptime(row_dict['timestamp'], TIMESTAMP_FORMAT)
-        print(df_as_dicts)
+        df_rows = [row.asDict() for row in df.collect()]
+        for row_dict in df_rows:
+            row_dict['timestamp'] = datetime.strptime(row_dict['timestamp'], u.TIMESTAMP_FORMAT)
+        logging.debug(df_rows)
 
         # perform bulk insert into DB
-        with Session as session:
+        with Session() as session:
             session.execute(
                 insert(Position),
-                df_as_dicts
+                df_rows
             )
             session.commit()
 
         return JSONResponse(content={
             'result': 'success',
-            'detail': f'Processed {file.filename} successfully'},
+            'detail': f'Processed {len(df_rows)} entries from {file.filename}'},
             status_code=200)
 
     except Exception as e:
-        print(e)
+        logging.exception('Unhandled Error')
+        if isinstance(e, HTTPException):
+            raise
+        else:
+            raise HTTPException(status_code=500, detail=f"Unexpected Error: {str(e)}")
+
+
+@app.get("/data")
+def get_stock_records(
+        symbol: str = Query(default='BTCUSDT', description="Crypto pair symbol, eg `BTCUSDT`"),
+        start_date: str = Query(default='2022-02-13 02:31:00', description="Start date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
+        end_date: str = Query(default='2022-02-13 02:35:00', description="End date to query position data, in the format YYYY-MM-DD hh:mm:ss"),
+        limit: int = Query(default=5, description="Amount of results per page to return"),
+        page: int = Query(default=1, description="Page to read the data from")
+):
+    try:
+
+        with Session() as session:
+            query = session.query(Position).filter(
+                Position.symbol == u.validate_symbol(symbol),
+                Position.timestamp >= u.validate_date(start_date),
+                Position.timestamp <= u.validate_date(end_date)
+            ).order_by(Position.timestamp.desc())
+
+            total_records = query.count()
+            total_pages = int(total_records // limit + (1 if total_records % limit > 0 else 0))
+
+            records = query.limit(limit).offset((page - 1) * limit).all()
+            for record in records:
+                logging.debug(record)
+
+        if not records:
+            return {
+                "data": [],
+                "pagination": {},
+                "info": {'error': f'No records found for symbol {symbol}'}
+            }
+
+        return {
+            "data": [record.__dict__ for record in records],
+            "pagination": {
+                "count": total_records,
+                "page": page,
+                "limit": limit,
+                "pages": total_pages
+            },
+            "info": {'error': ''}
+        }
+    except Exception as e:
+        logging.exception('Unhandled Error')
         if isinstance(e, HTTPException):
             raise
         else:
