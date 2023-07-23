@@ -3,34 +3,33 @@ import sys
 import logging
 from datetime import datetime
 from tempfile import NamedTemporaryFile
-from fastapi import FastAPI, UploadFile, HTTPException, Query
+from fastapi import UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pyspark.sql import SparkSession
+
 from pyspark.sql.functions import col
 from sqlalchemy import insert
 import csv_processor.utils as u
+from csv_processor.app import CSVProcessor
 from csv_processor.models import Position
 from csv_processor.schema import expected_schema
 
-if os.environ.get('ENV') == 'DEV':
+
+# Set up basic logging
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+logging.basicConfig(level=getattr(logging, LOG_LEVEL),
+                    format="%(asctime)s %(levelname)s - %(name)s: %(message)s",
+                    stream=sys.stdout
+                    )
+
+
+if os.getenv('ENV') == 'DEV':
     from csv_processor.db_sqlite import get_db_session
 else:
     from csv_processor.db_mysql import get_db_session
 
 
-# Set up basic logging
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s - %(name)s: %(message)s",
-                    stream=sys.stdout
-                    )
-
 # Initialise the application
-app = FastAPI()
-
-# As we have a requirement to process gigabytes or terabytes of data fast
-# I believe PySpark is the best tool to handle large datasets quickly and efficiently
-# Initialize the Spark session
-spark = SparkSession.builder.master('local[1]').appName("CSVProcessor").getOrCreate()
+app = CSVProcessor()
 
 
 @app.post("/data/")
@@ -51,7 +50,7 @@ def upload_csv(file: UploadFile):
                 tmp_file.write(contents)
 
         # Load the CSV data into a PySpark DataFrame
-        df = spark.read.csv(tmp_file.name,
+        df = app.spark_session.read.csv(tmp_file.name,
                             header=True,
                             inferSchema=True,
                             )
@@ -81,7 +80,10 @@ def upload_csv(file: UploadFile):
             row_dict['timestamp'] = datetime.strptime(row_dict['timestamp'], u.TIMESTAMP_FORMAT)
         logging.debug(df_rows)
 
-        # perform bulk insert into DB
+        # Perform bulk insert into DB
+        # this code does not validate whether the same records already exist in the database
+        # As processing speed is crucial, adding checking for duplicates at this stage
+        # would significantly degrade performance when adding new records
         with get_db_session() as session:
             session.execute(
                 insert(Position),

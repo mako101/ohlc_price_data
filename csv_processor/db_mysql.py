@@ -1,12 +1,13 @@
 import os
-
+import logging
 import pymysql
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
 from csv_processor.models import Base
 
+
 def get_db_session():
+    logging.debug('Using MYSQL DB Backend')
     # Check MYSQL root password is set
     try:
         mysql_pwd = os.environ['MYSQL_PWD']
